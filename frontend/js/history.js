@@ -12,6 +12,8 @@ function renderScenes() {
       </div>
       <div class="row gap-6">
         <a class="btn small" href="/config.html?scene=${esc(s.id)}">编辑</a>
+        <a class="btn small" href="/versions.html?scene=${esc(s.id)}">版本</a>
+        <button class="btn small clone" data-id="${esc(s.id)}">克隆</button>
         <button class="btn danger small del" data-kind="scenes" data-id="${esc(s.id)}">删除</button>
       </div>
     </div>`).join("") || '<p class="muted">暂无场景。</p>';
@@ -53,8 +55,17 @@ function render() {
   el("list").innerHTML = body();
   el("list").querySelectorAll(".del").forEach((b) => {
     b.onclick = async () => {
-      if (!confirm("确认删除？")) return;
+      if (!confirm(b.dataset.kind === "scenes" ? "确认删除？场景的全部版本历史将一并删除。" : "确认删除？")) return;
       await del(`/api/${b.dataset.kind}/${b.dataset.id}`);
+      await load();
+    };
+  });
+  el("list").querySelectorAll(".clone").forEach((b) => {
+    b.onclick = async () => {
+      const s = hist.scenes.find((x) => x.id === b.dataset.id);
+      const name = prompt("副本名称：", `${s ? s.name : "场景"} · 副本`);
+      if (name === null) return;
+      await post(`/api/scenes/${b.dataset.id}/clone`, { name: name || undefined });
       await load();
     };
   });

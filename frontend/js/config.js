@@ -119,15 +119,32 @@ async function reloadScenes() {
         <div class="t">${esc(s.name)}</div>
         <div class="s">${DOMAIN_LABEL[s.domain] || s.domain} · ${MODEL_LABEL[s.model] || s.model}</div>
       </div>
-      <button class="btn danger small del" data-id="${esc(s.id)}">删除</button>
+      <div class="row gap-6">
+        <a class="btn small ver" href="/versions.html?scene=${esc(s.id)}" title="版本历史">版本</a>
+        <button class="btn small clone" data-id="${esc(s.id)}" title="克隆为副本">克隆</button>
+        <button class="btn danger small del" data-id="${esc(s.id)}">删除</button>
+      </div>
     </div>`).join("") || '<p class="muted small">暂无场景。</p>';
 
   list.querySelectorAll(".list-item").forEach((li) => {
-    li.onclick = (ev) => { if (ev.target.closest(".del")) return; editScene(li.dataset.id); };
+    li.onclick = (ev) => {
+      if (ev.target.closest(".del") || ev.target.closest(".clone") || ev.target.closest(".ver")) return;
+      editScene(li.dataset.id);
+    };
+  });
+  list.querySelectorAll(".clone").forEach((b) => {
+    b.onclick = async () => {
+      const s = scenes.find((x) => x.id === b.dataset.id);
+      const name = prompt("副本名称：", `${s ? s.name : "场景"} · 副本`);
+      if (name === null) return;
+      const c = await post(`/api/scenes/${b.dataset.id}/clone`, { name: name || undefined });
+      await reloadScenes();
+      editScene(c.id);
+    };
   });
   list.querySelectorAll(".del").forEach((b) => {
     b.onclick = async () => {
-      if (!confirm("确认删除该场景？")) return;
+      if (!confirm("确认删除该场景？其全部版本历史将一并删除。")) return;
       await del(`/api/scenes/${b.dataset.id}`);
       if (cur && cur.id === b.dataset.id) newScene();
       reloadScenes();
@@ -147,6 +164,9 @@ function editScene(id) {
     el("fDesc").value = s.description;
     renderParams();
     renderInterventions();
+    const vh = el("verHistory");
+    vh.style.display = "";
+    vh.href = `/versions.html?scene=${encodeURIComponent(id)}`;
     document.querySelectorAll(".list-item").forEach((li) =>
       li.classList.toggle("selected", li.dataset.id === id));
   });
@@ -162,6 +182,7 @@ function newScene() {
   renderModels();
   renderParams();
   renderInterventions();
+  el("verHistory").style.display = "none";
   document.querySelectorAll(".list-item").forEach((li) => li.classList.remove("selected"));
 }
 
@@ -183,8 +204,14 @@ async function saveScene() {
     const saved = cur ? await put(`/api/scenes/${cur.id}`, obj) : await post("/api/scenes", obj);
     cur = saved;
     el("formTitle").textContent = "编辑场景 · " + saved.name;
-    el("formStatus").textContent = "已保存 ✓";
-    setTimeout(() => el("formStatus").textContent = "", 2000);
+    const vh = el("verHistory");
+    vh.style.display = "";
+    vh.href = `/versions.html?scene=${encodeURIComponent(saved.id)}`;
+    const ver = saved.version;
+    el("formStatus").textContent = saved.version_created === false
+      ? `内容无变化（仍为 v${ver ? ver.n : "?"}）`
+      : `已保存 ✓ 记录为 v${ver ? ver.n : "?"}`;
+    setTimeout(() => el("formStatus").textContent = "", 2500);
     await reloadScenes();
     return saved;
   } catch (e) { alert("保存失败：" + e.message); }

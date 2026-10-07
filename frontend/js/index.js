@@ -2,6 +2,7 @@
 
 const CARDS = [
   { file: "config.html", icon: "🗺", title: "场景配置", desc: "选择领域与模型，配置地图与参数，安排定时干预措施。" },
+  { file: "versions.html", icon: "🕘", title: "版本管理", desc: "场景版本快照、任意两版差异对比、一键回滚与克隆副本。" },
   { file: "individuals.html", icon: "🚗", title: "个体管理", desc: "查看、筛选与检索车辆 / 动物 / 人等个体状态。" },
   { file: "visualize.html", icon: "🎨", title: "实时可视化", desc: "Canvas 实时渲染仿真过程，逐帧步进、暂停、调速。" },
   { file: "stats.html", icon: "📈", title: "统计图表", desc: "ECharts 绘制各统计量随时间的演化曲线。" },

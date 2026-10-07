@@ -14,7 +14,7 @@ from typing import Any, Dict
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-from . import catalog, export, models, report, storage, util
+from . import catalog, export, models, report, storage, util, versions
 from .run_manager import manager
 
 FRONTEND_DIR = os.path.join(
@@ -82,7 +82,9 @@ def create_app() -> Flask:
             return jsonify({"error": "validation failed", "details": errors}), 400
         scene.created_at = scene.updated_at = util.now_iso()
         storage.save_scene(scene.to_dict())
-        return jsonify(scene.to_dict()), 201
+        entry, _ = versions.record(scene.to_dict(), source="create",
+                                   message="创建场景")
+        return jsonify({**scene.to_dict(), "version": entry}), 201
 
     @app.route("/api/scenes/<scene_id>", methods=["GET"])
     def get_scene(scene_id: str):
@@ -102,13 +104,95 @@ def create_app() -> Flask:
         scene.created_at = storage.load_scene(scene_id).get("created_at", "")
         scene.updated_at = util.now_iso()
         storage.save_scene(scene.to_dict())
-        return jsonify(scene.to_dict())
+        entry, created = versions.record(scene.to_dict(), source="edit")
+        return jsonify({**scene.to_dict(), "version": entry,
+                        "version_created": created})
 
     @app.route("/api/scenes/<scene_id>", methods=["DELETE"])
     def delete_scene(scene_id: str):
         if not storage.delete_scene(scene_id):
             return _err(KeyError(f"scene not found: {scene_id}"), 404)
         return jsonify({"deleted": scene_id})
+
+    # ------------------------------------------------------------------ #
+    # Scene versions: clone / snapshots / diff / rollback
+    # ------------------------------------------------------------------ #
+    @app.route("/api/scenes/<scene_id>/clone", methods=["POST"])
+    def clone_scene(scene_id: str):
+        scene = storage.load_scene(scene_id)
+        if scene is None:
+            return _err(KeyError(f"scene not found: {scene_id}"), 404)
+        clone = versions.clone_scene(scene, _json().get("name"))
+        errors = models.validate_scene(models.Scene.from_dict(clone))
+        if errors:
+            return jsonify({"error": "validation failed", "details": errors}), 400
+        storage.save_scene(clone)
+        head = versions.head_entry(versions.load_index(scene_id))
+        origin = f"克隆自 {scene.get('name', scene_id)}"
+        if head:
+            origin += f" v{head['n']}"
+        entry, _ = versions.record(clone, source="clone", message=origin)
+        return jsonify({**clone, "version": entry}), 201
+
+    @app.route("/api/scenes/<scene_id>/versions", methods=["GET"])
+    def list_scene_versions(scene_id: str):
+        if storage.load_scene(scene_id) is None:
+            return _err(KeyError(f"scene not found: {scene_id}"), 404)
+        limit = request.args.get("limit", type=int)
+        offset = request.args.get("offset", default=0, type=int)
+        return jsonify(versions.list_versions(scene_id, limit=limit,
+                                              offset=offset))
+
+    @app.route("/api/scenes/<scene_id>/versions/<int:n>", methods=["GET"])
+    def get_scene_version(scene_id: str, n: int):
+        version = versions.get_version(scene_id, n)
+        if version is None:
+            return _err(KeyError(f"version not found: v{n}"), 404)
+        if version.get("content") is None:
+            return _err(ValueError(f"版本 v{n} 的快照已被清理"), 410)
+        return jsonify(version)
+
+    @app.route("/api/scenes/<scene_id>/versions/diff", methods=["GET"])
+    def diff_scene_versions(scene_id: str):
+        from_n = request.args.get("from", type=int)
+        to_n = request.args.get("to", type=int)
+        if from_n is None or to_n is None:
+            return _err(ValueError("需要提供 from 与 to 两个版本号"), 400)
+        try:
+            return jsonify(versions.diff_versions(scene_id, from_n, to_n))
+        except KeyError as exc:
+            return _err(exc, 404)
+        except ValueError as exc:
+            return _err(exc, 410)
+
+    @app.route("/api/scenes/<scene_id>/rollback", methods=["POST"])
+    def rollback_scene(scene_id: str):
+        scene = storage.load_scene(scene_id)
+        if scene is None:
+            return _err(KeyError(f"scene not found: {scene_id}"), 404)
+        n = _json().get("version")
+        if not isinstance(n, int) or isinstance(n, bool):
+            return _err(ValueError("缺少有效的 version 参数"), 400)
+        try:
+            restored = versions.rollback(scene, n)
+        except KeyError as exc:
+            return _err(exc, 404)
+        except ValueError as exc:
+            return _err(exc, 410)
+        restored["updated_at"] = util.now_iso()
+        storage.save_scene(restored)
+        entry, _ = versions.record(restored, source="rollback",
+                                   message=f"回滚自 v{n}",
+                                   restored_from=n)
+        return jsonify({**restored, "version": entry})
+
+    @app.route("/api/scenes/<scene_id>/versions/prune", methods=["POST"])
+    def prune_scene_versions(scene_id: str):
+        if storage.load_scene(scene_id) is None:
+            return _err(KeyError(f"scene not found: {scene_id}"), 404)
+        keep = int(_json().get("keep", versions.MAX_VERSIONS))
+        pruned = versions.prune(scene_id, keep=keep)
+        return jsonify({"pruned": pruned, "keep": max(1, keep)})
 
     # ------------------------------------------------------------------ #
     # Runs

@@ -214,6 +214,7 @@ td.num, th.num { text-align: right; font-family: var(--mono); }
 }
 .notice.warn { border-color: #5b4a1f; color: var(--orange); }
 .notice.error { border-color: #5b2a2a; color: var(--red); }
+.notice.ok { border-color: #1f5b33; color: var(--green); }
 
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
 .tab {
@@ -225,6 +226,54 @@ td.num, th.num { text-align: right; font-family: var(--mono); }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
 .pill { font-family: var(--mono); font-size: 12px; color: var(--accent-2); }
+
+/* ---- scene versions ------------------------------------------------------ */
+.ver-item { cursor: default; }
+.ver-item.pruned { opacity: .55; }
+.ver-item .pill { font-weight: 700; margin-right: 4px; }
+
+.diff-group { margin-top: 14px; }
+.diff-group h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: none;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.diff-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  margin-bottom: 3px;
+  background: var(--bg-2);
+  border-left: 3px solid var(--border);
+}
+.diff-row .diff-k { color: var(--text); }
+.diff-row.diff-add { border-left-color: var(--green); }
+.diff-row.diff-add .mono { color: var(--green); }
+.diff-row.diff-del { border-left-color: var(--red); }
+.diff-row.diff-del .mono, .diff-row.diff-del { color: var(--red); }
+.diff-row.diff-mod { border-left-color: var(--orange); }
+.diff-row.diff-mod .mono { color: var(--orange); }
+
+.code-block {
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 480px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
 /* timeline slider */
 .timeline { width: 100%; margin: 12px 0; accent-color: var(--accent); }

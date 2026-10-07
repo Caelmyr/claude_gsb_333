@@ -16,7 +16,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend import models, report, storage  # noqa: E402
+from backend import models, report, storage, versions  # noqa: E402
 from backend.engine import make_engine  # noqa: E402
 from backend.run_manager import manager  # noqa: E402
 
@@ -98,11 +98,87 @@ def run_lifecycle() -> None:
         manager.delete_run(rid)
 
 
+def scene_versioning() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        old = storage.DATA_DIR
+        storage.DATA_DIR = td
+        try:
+            storage.ensure_dirs()
+            base = {"id": "s1", "name": "疫情基线", "domain": "epidemic",
+                    "model": "ca", "description": "v1",
+                    "config": {"width": 50, "height": 50, "beta": 0.4,
+                               "initial_infected": 5},
+                    "interventions": []}
+
+            # create -> v1; identical save is a no-op (dedup)
+            e1, created = versions.record(base, source="create")
+            assert created and e1["n"] == 1 and e1["parent"] is None
+            e1b, created = versions.record(base, source="edit")
+            assert not created and e1b["n"] == 1
+            assert versions.list_versions("s1")["total"] == 1
+
+            # edit -> v2 with parent pointer; diff groups the changes
+            v2 = dict(base, config={**base["config"], "width": 80, "beta": 0.5},
+                      interventions=[{"type": "lockdown", "at_step": 10,
+                                      "params": {"scale": 0.5}}])
+            e2, created = versions.record(v2, source="edit")
+            assert created and e2["n"] == 2 and e2["parent"] == 1
+            d = versions.diff_versions("s1", 1, 2)
+            assert d["changed"]
+            assert [c["key"] for c in d["config"]["map"]] == ["width"]
+            assert [c["key"] for c in d["config"]["params"]] == ["beta"]
+            assert len(d["interventions"]["added"]) == 1
+
+            # rollback to v1 -> new head v3 (history kept, chain continues)
+            restored = versions.rollback(v2, 1)
+            assert restored["config"] == base["config"]
+            e3, created = versions.record(restored, source="rollback",
+                                          restored_from=1)
+            assert created and e3["n"] == 3 and e3["parent"] == 2
+            assert e3["restored_from"] == 1
+            # pre-rollback state (v2) is still intact and restorable
+            assert versions.rollback(restored, 2)["config"]["beta"] == 0.5
+
+            # editing after rollback simply extends the linear chain
+            v4 = dict(restored, description="调整后")
+            e4, _ = versions.record(v4, source="edit")
+            assert e4["n"] == 4 and e4["parent"] == 3
+            d = versions.diff_versions("s1", 3, 4)
+            assert [m["key"] for m in d["meta"]] == ["description"]
+
+            # clone -> fresh scene with its own chain starting at v1
+            clone = versions.clone_scene(v4)
+            assert clone["id"] != "s1" and clone["config"] == v4["config"]
+            ec, created = versions.record(clone, source="clone")
+            assert created and ec["n"] == 1 and ec["parent"] is None
+
+            # pruning keeps tombstones + the newest snapshots
+            for i in range(versions.MAX_VERSIONS + 5):
+                versions.record(dict(v4, description=f"rev {i}"),
+                                source="edit")
+            info = versions.list_versions("s1")
+            snaps = [v for v in info["versions"] if not v["pruned"]]
+            assert len(snaps) == versions.MAX_VERSIONS
+            assert info["latest"] == info["versions"][0]["n"]
+            tombstones = [v for v in info["versions"] if v["pruned"]]
+            assert tombstones and all(v["n"] for v in tombstones)
+            try:
+                versions.diff_versions("s1", tombstones[-1]["n"],
+                                       info["latest"])
+                raise AssertionError("expected pruned diff to fail")
+            except ValueError:
+                pass
+        finally:
+            storage.DATA_DIR = old
+
+
 def main() -> None:
     check("six engines step and snapshot", engines_step)
     check("interventions apply", interventions_apply)
     check("atomic sharded storage", storage_atomic_roundtrip)
     check("run lifecycle + report", run_lifecycle)
+    check("scene versioning: snapshot/diff/rollback/clone/prune",
+          scene_versioning)
     print("\nall smoke tests passed")
 
 

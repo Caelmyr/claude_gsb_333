@@ -3,6 +3,7 @@
 const PAGES = [
   { file: "index.html", label: "总览" },
   { file: "config.html", label: "场景配置" },
+  { file: "versions.html", label: "版本管理" },
   { file: "individuals.html", label: "个体管理" },
   { file: "visualize.html", label: "实时可视化" },
   { file: "stats.html", label: "统计图表" },

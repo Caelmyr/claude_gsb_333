@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import List
 
-from . import models, storage, util
+from . import models, storage, util, versions
 
 _SCENES = [
     models.Scene(
@@ -77,12 +77,19 @@ _SCENES = [
 
 
 def seed_all() -> List[str]:
-    """Write the six example scenes; return their ids."""
+    """Write the six example scenes; return their ids.
+
+    Each write is recorded as a scene version, so re-seeding after local
+    edits does not silently destroy them — the pre-seed state stays on the
+    version chain and can be restored from the versions page.
+    """
     storage.ensure_dirs()
     for scene in _SCENES:
         if not scene.created_at:
             scene.created_at = scene.updated_at = util.now_iso()
         storage.save_scene(scene.to_dict())
+        versions.record(scene.to_dict(), source="create",
+                        message="初始示例场景")
     return [s.id for s in _SCENES]
 
 

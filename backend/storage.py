@@ -11,6 +11,9 @@ Layout (all under :data:`DATA_DIR`)::
           steps/<nnnnnnnn>.json     # full per-step snapshot (individuals + grid)
           report.json               # generated report
       experiments/<exp_id>.json     # comparison experiments (param groups)
+      versions/<scene_id>/
+          index.json                # append-only version chain metadata
+          <nnnnnn>.json             # full scene-content snapshot per version
       exports/                      # exported CSV / JSON files
 
 Every write goes through :func:`atomic_write_json`: serialise, write to a temp
@@ -34,7 +37,7 @@ from typing import Any, Dict, List, Optional
 DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
-_DIRS = ("scenes", "runs", "experiments", "reports", "exports")
+_DIRS = ("scenes", "runs", "experiments", "reports", "exports", "versions")
 
 
 def ensure_dirs() -> None:
@@ -109,7 +112,9 @@ def load_scene(scene_id: str) -> Optional[Dict[str, Any]]:
 
 
 def delete_scene(scene_id: str) -> bool:
-    return delete_file(scene_path(scene_id))
+    deleted = delete_file(scene_path(scene_id))
+    delete_versions(scene_id)
+    return deleted
 
 
 def list_scenes() -> List[Dict[str, Any]]:
@@ -123,6 +128,50 @@ def list_scenes() -> List[Dict[str, Any]]:
             out.append(scene)
     out.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Scene versions (append-only snapshot chain, one directory per scene)
+# --------------------------------------------------------------------------- #
+def versions_dir(scene_id: str) -> str:
+    return os.path.join(DATA_DIR, "versions", scene_id)
+
+
+def version_index_path(scene_id: str) -> str:
+    return os.path.join(versions_dir(scene_id), "index.json")
+
+
+def version_snapshot_path(scene_id: str, n: int) -> str:
+    return os.path.join(versions_dir(scene_id), f"{n:06d}.json")
+
+
+def save_version_index(scene_id: str, index: Dict[str, Any]) -> None:
+    atomic_write_json(version_index_path(scene_id), index)
+
+
+def load_version_index(scene_id: str) -> Optional[Dict[str, Any]]:
+    return read_json(version_index_path(scene_id))
+
+
+def save_version_snapshot(scene_id: str, n: int, content: Dict[str, Any]) -> None:
+    atomic_write_json(version_snapshot_path(scene_id, n), content)
+
+
+def load_version_snapshot(scene_id: str, n: int) -> Optional[Dict[str, Any]]:
+    return read_json(version_snapshot_path(scene_id, n))
+
+
+def delete_version_snapshot(scene_id: str, n: int) -> bool:
+    return delete_file(version_snapshot_path(scene_id, n))
+
+
+def delete_versions(scene_id: str) -> bool:
+    import shutil
+    path = versions_dir(scene_id)
+    if os.path.isdir(path):
+        shutil.rmtree(path)
+        return True
+    return False
 
 
 # --------------------------------------------------------------------------- #
