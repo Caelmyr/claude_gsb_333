@@ -147,9 +147,23 @@ function editScene(id) {
     el("fDesc").value = s.description;
     renderParams();
     renderInterventions();
+    refreshVersionsLink();
     document.querySelectorAll(".list-item").forEach((li) =>
       li.classList.toggle("selected", li.dataset.id === id));
   });
+}
+
+async function refreshVersionsLink() {
+  const link = el("versionsLink");
+  if (!cur || !cur.id) { link.style.display = "none"; return; }
+  link.href = `/versions.html?scene=${encodeURIComponent(cur.id)}`;
+  link.style.display = "";
+  try {
+    const data = await get(`/api/scenes/${cur.id}/versions?limit=1`);
+    link.textContent = `版本管理（${data.total} 个版本）`;
+  } catch (e) {
+    link.textContent = "版本管理";
+  }
 }
 
 function newScene() {
@@ -162,6 +176,7 @@ function newScene() {
   renderModels();
   renderParams();
   renderInterventions();
+  el("versionsLink").style.display = "none";
   document.querySelectorAll(".list-item").forEach((li) => li.classList.remove("selected"));
 }
 
@@ -183,9 +198,11 @@ async function saveScene() {
     const saved = cur ? await put(`/api/scenes/${cur.id}`, obj) : await post("/api/scenes", obj);
     cur = saved;
     el("formTitle").textContent = "编辑场景 · " + saved.name;
-    el("formStatus").textContent = "已保存 ✓";
-    setTimeout(() => el("formStatus").textContent = "", 2000);
+    el("formStatus").textContent = saved.version_created === false
+      ? "内容未变化，未新增版本 ✓" : "已保存并记录版本 ✓";
+    setTimeout(() => el("formStatus").textContent = "", 2500);
     await reloadScenes();
+    refreshVersionsLink();
     return saved;
   } catch (e) { alert("保存失败：" + e.message); }
 }

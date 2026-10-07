@@ -14,7 +14,7 @@ from typing import Any, Dict
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-from . import catalog, export, models, report, storage, util
+from . import catalog, export, models, report, storage, util, versions
 from .run_manager import manager
 
 FRONTEND_DIR = os.path.join(
@@ -81,8 +81,13 @@ def create_app() -> Flask:
         if errors:
             return jsonify({"error": "validation failed", "details": errors}), 400
         scene.created_at = scene.updated_at = util.now_iso()
-        storage.save_scene(scene.to_dict())
-        return jsonify(scene.to_dict()), 201
+        data = scene.to_dict()
+        storage.save_scene(data)
+        # Every new scene starts its version chain with a protected baseline.
+        ver, _ = versions.record_version(
+            scene.id, data, kind="create", name="创建场景")
+        return jsonify({**data, "version_seq": ver["seq"],
+                        "version_id": ver["id"]}), 201
 
     @app.route("/api/scenes/<scene_id>", methods=["GET"])
     def get_scene(scene_id: str):
@@ -93,22 +98,128 @@ def create_app() -> Flask:
 
     @app.route("/api/scenes/<scene_id>", methods=["PUT"])
     def update_scene(scene_id: str):
-        if storage.load_scene(scene_id) is None:
+        existing = storage.load_scene(scene_id)
+        if existing is None:
             return _err(KeyError(f"scene not found: {scene_id}"), 404)
         scene = models.Scene.from_dict({**_json(), "id": scene_id})
         errors = models.validate_scene(scene)
         if errors:
             return jsonify({"error": "validation failed", "details": errors}), 400
-        scene.created_at = storage.load_scene(scene_id).get("created_at", "")
+        scene.created_at = existing.get("created_at", "")
         scene.updated_at = util.now_iso()
-        storage.save_scene(scene.to_dict())
-        return jsonify(scene.to_dict())
+        data = scene.to_dict()
+        storage.save_scene(data)
+        # Auto snapshot every save; identical content reuses the head version.
+        # Old pre-versioning scenes are backfilled first so their baseline is
+        # never the "after first edit" state.
+        if not storage.load_version_index(scene_id).get("versions"):
+            versions.record_version(
+                scene_id, existing, kind="backfill", name="历史版本（自动补录）")
+        ver, ver_created = versions.record_version(scene_id, data, kind="auto")
+        return jsonify({**data, "version_seq": ver["seq"],
+                        "version_id": ver["id"],
+                        "version_created": ver_created})
 
     @app.route("/api/scenes/<scene_id>", methods=["DELETE"])
     def delete_scene(scene_id: str):
         if not storage.delete_scene(scene_id):
             return _err(KeyError(f"scene not found: {scene_id}"), 404)
+        # Remove the chain index; its blobs may be shared, GC reclaims orphans.
+        storage.delete_version_index(scene_id)
+        try:
+            versions.gc_blobs()
+        except OSError:
+            pass
         return jsonify({"deleted": scene_id})
+
+    @app.route("/api/scenes/<scene_id>/clone", methods=["POST"])
+    def clone_scene(scene_id: str):
+        data = _json()
+        try:
+            clone = versions.clone_scene(
+                scene_id, new_name=(data.get("name") or None),
+                version_id=(data.get("version_id") or None))
+        except KeyError as exc:
+            return _err(exc, 404)
+        return jsonify(clone), 201
+
+    # ------------------------------------------------------------------ #
+    # Scene version management (snapshots / diff / rollback / pruning)
+    # ------------------------------------------------------------------ #
+    def _scene_or_404(scene_id: str):
+        scene = storage.load_scene(scene_id)
+        if scene is None:
+            return None, _err(KeyError(f"scene not found: {scene_id}"), 404)
+        return scene, None
+
+    @app.route("/api/scenes/<scene_id>/versions", methods=["GET"])
+    def list_versions(scene_id: str):
+        scene, err = _scene_or_404(scene_id)
+        if err:
+            return err
+        versions.ensure_backfill(scene_id, scene)
+        limit = request.args.get("limit", default=30, type=int)
+        offset = request.args.get("offset", default=0, type=int)
+        return jsonify(versions.list_versions(scene_id, limit=limit,
+                                              offset=offset))
+
+    @app.route("/api/scenes/<scene_id>/versions/<version_id>", methods=["GET"])
+    def get_version(scene_id: str, version_id: str):
+        try:
+            return jsonify(versions.get_version(scene_id, version_id))
+        except KeyError as exc:
+            return _err(exc, 404)
+
+    @app.route("/api/scenes/<scene_id>/versions/<version_id>", methods=["PATCH"])
+    def rename_version(scene_id: str, version_id: str):
+        try:
+            return jsonify(versions.rename_version(
+                scene_id, version_id, _json().get("name", "")))
+        except KeyError as exc:
+            return _err(exc, 404)
+
+    @app.route("/api/scenes/<scene_id>/versions/<version_id>/rollback",
+               methods=["POST"])
+    def rollback_version(scene_id: str, version_id: str):
+        try:
+            scene, rec, created = versions.rollback(
+                scene_id, version_id, note=(_json().get("note") or None))
+        except KeyError as exc:
+            return _err(exc, 404)
+        return jsonify({"scene": scene, "version": rec, "created": created})
+
+    @app.route("/api/scenes/<scene_id>/checkpoint", methods=["POST"])
+    def checkpoint(scene_id: str):
+        """Pin the current state as a named, never-pruned milestone version."""
+        scene, err = _scene_or_404(scene_id)
+        if err:
+            return err
+        name = (_json().get("name") or "").strip() or "手动快照"
+        if not storage.load_version_index(scene_id).get("versions"):
+            versions.record_version(
+                scene_id, scene, kind="backfill", name="历史版本（自动补录）")
+        rec, _ = versions.record_version(
+            scene_id, scene, kind="checkpoint", name=name, force=True)
+        return jsonify(rec), 201
+
+    @app.route("/api/scenes/<scene_id>/diff")
+    def version_diff(scene_id: str):
+        b = request.args.get("b", "")
+        a = request.args.get("a", "") or None
+        try:
+            return jsonify(versions.diff_versions(scene_id, a, b))
+        except KeyError as exc:
+            return _err(exc, 404)
+
+    @app.route("/api/scenes/<scene_id>/prune", methods=["POST"])
+    def prune_versions(scene_id: str):
+        data = _json()
+        keep = int(data.get("keep", versions.AUTO_KEEP))
+        return jsonify(versions.prune_versions(scene_id, keep=keep))
+
+    @app.route("/api/version-stats")
+    def version_stats():
+        return jsonify(versions.version_stats())
 
     # ------------------------------------------------------------------ #
     # Runs

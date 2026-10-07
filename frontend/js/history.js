@@ -12,6 +12,7 @@ function renderScenes() {
       </div>
       <div class="row gap-6">
         <a class="btn small" href="/config.html?scene=${esc(s.id)}">编辑</a>
+        <a class="btn small" href="/versions.html?scene=${esc(s.id)}">版本</a>
         <button class="btn danger small del" data-kind="scenes" data-id="${esc(s.id)}">删除</button>
       </div>
     </div>`).join("") || '<p class="muted">暂无场景。</p>';

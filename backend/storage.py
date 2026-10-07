@@ -4,6 +4,8 @@ Layout (all under :data:`DATA_DIR`)::
 
     data/
       scenes/<scene_id>.json        # scene definitions (config + interventions)
+      scene_versions/<scene_id>.json  # per-scene version chain (metadata only)
+      scene_versions/blobs/<hash>.json # content-addressed scene snapshots (shared)
       runs/<run_id>/
           meta.json                 # run config, status, current step
           series.json               # compact per-step aggregate statistics
@@ -34,7 +36,7 @@ from typing import Any, Dict, List, Optional
 DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
-_DIRS = ("scenes", "runs", "experiments", "reports", "exports")
+_DIRS = ("scenes", "scene_versions", "runs", "experiments", "reports", "exports")
 
 
 def ensure_dirs() -> None:
@@ -123,6 +125,82 @@ def list_scenes() -> List[Dict[str, Any]]:
             out.append(scene)
     out.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Scene versions (content-addressed snapshots + per-scene version chain)
+# --------------------------------------------------------------------------- #
+# Each scene keeps one compact *index* (ordered list of version metadata) and
+# every distinct scene content is stored exactly once as a content-addressed
+# blob shared by all scenes.  Re-saving an unchanged scene, cloning and rolling
+# back never duplicate payloads, so a long history costs roughly one small file
+# per *distinct* edit rather than one per save.
+def scene_versions_dir() -> str:
+    return os.path.join(DATA_DIR, "scene_versions")
+
+
+def version_blobs_dir() -> str:
+    return os.path.join(scene_versions_dir(), "blobs")
+
+
+def version_index_path(scene_id: str) -> str:
+    return os.path.join(scene_versions_dir(), f"{scene_id}.json")
+
+
+def version_blob_path(hash_id: str) -> str:
+    return os.path.join(version_blobs_dir(), f"{hash_id}.json")
+
+
+def load_version_index(scene_id: str) -> Dict[str, Any]:
+    """Return ``{"head", "seq", "versions": [...]}`` (empty index if absent)."""
+    return read_json(version_index_path(scene_id),
+                     {"head": None, "seq": 0, "versions": []}) or \
+        {"head": None, "seq": 0, "versions": []}
+
+
+def save_version_index(scene_id: str, index: Dict[str, Any]) -> None:
+    atomic_write_json(version_index_path(scene_id), index)
+
+
+def delete_version_index(scene_id: str) -> bool:
+    return delete_file(version_index_path(scene_id))
+
+
+def list_version_indexes() -> List[str]:
+    """Scene ids that have a version index on disk."""
+    d = scene_versions_dir()
+    if not os.path.isdir(d):
+        return []
+    return [n[:-5] for n in os.listdir(d)
+            if n.endswith(".json")]
+
+
+def save_version_blob(hash_id: str, payload: Dict[str, Any]) -> bool:
+    """Write a content blob unless an identical one already exists.
+
+    Returns ``True`` when a new file was created.  Write is atomic, so a
+    duplicate (lost) hash race merely overwrites identical bytes.
+    """
+    path = version_blob_path(hash_id)
+    if os.path.exists(path):
+        return False
+    atomic_write_json(path, payload)
+    return True
+
+
+def load_version_blob(hash_id: str) -> Optional[Dict[str, Any]]:
+    return read_json(version_blob_path(hash_id))
+
+
+def delete_version_blob(hash_id: str) -> bool:
+    return delete_file(version_blob_path(hash_id))
+
+
+def list_version_blobs() -> List[str]:
+    d = version_blobs_dir()
+    if not os.path.isdir(d):
+        return []
+    return [n[:-5] for n in os.listdir(d) if n.endswith(".json")]
 
 
 # --------------------------------------------------------------------------- #

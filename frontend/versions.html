@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>场景版本管理 · 复杂系统模拟仿真平台</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="topnav" id="topnav"></nav>
+  <main class="container">
+    <h1 class="page-title">场景版本管理</h1>
+    <p class="page-sub">每次保存自动生成版本快照；可一键克隆副本、对比任意两个版本（参数 / 干预 / 地图 / 初始布局）并回滚。回滚不会抹掉历史，只会在链条末端追加一个回滚版本——之后继续编辑保存，链条照常向前延伸，新改动永不丢失。</p>
+
+    <div class="grid" style="grid-template-columns:320px 1fr; gap:18px">
+      <div>
+        <div class="card">
+          <div class="row between" style="margin-bottom:10px">
+            <h3 style="margin:0">场景</h3>
+            <span class="muted small" id="storageHint"></span>
+          </div>
+          <input id="sceneSearch" placeholder="搜索场景名称…" style="margin-bottom:10px">
+          <div id="sceneList"></div>
+        </div>
+        <div class="card" id="storageCard" style="display:none">
+          <h3>存储占用</h3>
+          <div id="storageStats" class="small"></div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn small" id="pruneBtn">立即清理本场景历史</button>
+          </div>
+          <p class="muted small" style="margin:8px 0 0">自动保留最近 <span id="keepN">50</span> 个普通快照；创建/克隆/回滚/命名快照永久保留。</p>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" id="emptyCard">
+          <p class="muted">← 请选择一个场景查看其版本历史。</p>
+        </div>
+
+        <div id="versionPanel" style="display:none">
+          <div class="card">
+            <div class="row between">
+              <div>
+                <h2 id="vTitle" style="margin:0 0 4px"></h2>
+                <div class="muted small" id="vSub"></div>
+              </div>
+              <div class="row gap-6">
+                <button class="btn small" id="cloneHeadBtn">克隆当前版本为副本</button>
+                <button class="btn small primary" id="checkpointBtn">＋ 命名快照</button>
+                <a class="btn small" id="editLink" href="#">编辑场景</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>版本对比</h3>
+            <div class="grid grid-3">
+              <div class="field" style="margin:0">
+                <label>旧版本 A</label>
+                <select id="diffA"></select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>新版本 B</label>
+                <select id="diffB"></select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>&nbsp;</label>
+                <button class="btn primary" id="diffBtn" style="width:100%">对比差异</button>
+              </div>
+            </div>
+            <p class="muted small" style="margin:6px 0 0">默认比较所选版本与其上一版；可任选两个版本查看演变。</p>
+            <div id="diffOut" style="margin-top:14px"></div>
+          </div>
+
+          <div class="card">
+            <div class="row between">
+              <h3 style="margin:0">版本时间线</h3>
+              <span class="muted small" id="listMeta"></span>
+            </div>
+            <div id="timeline" style="margin-top:12px"></div>
+            <div class="row between" style="margin-top:10px">
+              <button class="btn small" id="olderBtn">加载更早版本</button>
+              <span class="muted small" id="pageInfo"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/common.js"></script>
+  <script src="/js/versions.js"></script>
+</body>
+</html>

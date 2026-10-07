@@ -228,3 +228,55 @@ td.num, th.num { text-align: right; font-family: var(--mono); }
 
 /* timeline slider */
 .timeline { width: 100%; margin: 12px 0; accent-color: var(--accent); }
+
+/* ---- scene version timeline --------------------------------------------- */
+.ver-item {
+  position: relative;
+  padding-left: 22px;
+  padding-bottom: 10px;
+}
+.ver-item::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 18px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--border);
+}
+.ver-item:last-child::before { display: none; }
+.ver-node {
+  position: absolute;
+  left: 2px;
+  top: 16px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--panel-2);
+  border: 2px solid var(--muted);
+  z-index: 1;
+}
+.ver-item.is-a .ver-node { border-color: var(--accent); background: var(--accent); }
+.ver-item.is-b .ver-node { border-color: var(--orange); background: var(--orange); }
+.ver-item.is-a > .card { outline: 1px solid var(--accent); }
+.ver-item.is-b > .card { outline: 1px solid var(--orange); }
+
+/* ---- version diff -------------------------------------------------------- */
+.diff-section { margin-bottom: 14px; }
+.diff-section h4 { margin: 0 0 6px; font-size: 13px; }
+.diff-arrow { color: var(--muted); text-align: center; width: 30px; }
+.diff-add {
+  padding: 6px 10px; margin-bottom: 6px;
+  border-left: 3px solid var(--green);
+  background: rgba(46, 204, 113, .08); border-radius: 0 6px 6px 0;
+}
+.diff-del {
+  padding: 6px 10px; margin-bottom: 6px;
+  border-left: 3px solid var(--red);
+  background: rgba(231, 76, 60, .08); border-radius: 0 6px 6px 0;
+}
+.diff-mod {
+  padding: 8px 10px; margin-bottom: 6px;
+  border-left: 3px solid var(--orange);
+  background: rgba(243, 156, 18, .07); border-radius: 0 6px 6px 0;
+}
